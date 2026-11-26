@@ -31,7 +31,8 @@ py app.py
 2. Click **ⓘ Instructions** for the in-app setup and usage guide.
 3. Select **Video** or **Image** mode and choose an input file.
 4. Browse to `video2x.exe` in the Video2X installation folder if it is not on
-   `PATH`.
+   `PATH`. The selected path is remembered between launches; browse again to
+   change it.
 5. Choose **Real-ESRGAN Plus** for general footage or **Anime Video v3** for
    animation, then select a maximum output size.
 6. Click **Upscale video** or **Upscale image**.
