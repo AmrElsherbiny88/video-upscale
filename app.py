@@ -11,6 +11,7 @@ import sys
 import tempfile
 import threading
 import tkinter as tk
+import webbrowser
 from collections import deque
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -27,6 +28,16 @@ AI_MODELS = {
     "Real-ESRGAN Plus (general footage)": "realesrgan-plus",
     "Real-ESRGAN Anime Video v3 (animation)": "realesr-animevideov3",
 }
+
+
+def _video2x_settings_file() -> Path:
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    base_dir = (
+        Path(local_app_data)
+        if local_app_data
+        else Path.home() / "AppData" / "Local"
+    )
+    return base_dir / "AI Media Upscaler" / "video2x_path.txt"
 
 
 class _ConversionCancelled(Exception):
@@ -179,7 +190,12 @@ class VideoUpscalerApp:
         self.mode_var = tk.StringVar(value="Video")
         self.input_var = tk.StringVar()
         self.output_var = tk.StringVar()
-        self.video2x_var = tk.StringVar(value=shutil.which("video2x") or "")
+        self._video2x_path_file = _video2x_settings_file()
+        saved_video2x_path = self._load_video2x_path()
+        self.video2x_var = tk.StringVar(
+            value=saved_video2x_path or shutil.which("video2x") or ""
+        )
+        self._last_saved_video2x_path = self.video2x_var.get().strip()
         self.ai_model_var = tk.StringVar(value=next(iter(AI_MODELS)))
         self.resolution_var = tk.StringVar(value=next(iter(RESOLUTIONS)))
         self.status_var = tk.StringVar(value="Choose a mode and input file to get started.")
@@ -198,6 +214,42 @@ class VideoUpscalerApp:
         self._build_widgets()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.root.after(100, self._poll_events)
+
+    def _load_video2x_path(self) -> Optional[str]:
+        try:
+            saved_path = self._video2x_path_file.read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            return None
+        except (OSError, UnicodeError) as exc:
+            messagebox.showerror(
+                "Could not load Video2X path",
+                f"Could not read the saved Video2X path from "
+                f"{self._video2x_path_file}:\n{exc}",
+                parent=self.root,
+            )
+            return None
+        return saved_path or None
+
+    def _save_video2x_path(
+        self, _event: Optional[tk.Event] = None, force: bool = False
+    ) -> None:
+        selected_path = self.video2x_var.get().strip()
+        if not force and selected_path == self._last_saved_video2x_path:
+            return
+
+        try:
+            self._video2x_path_file.parent.mkdir(parents=True, exist_ok=True)
+            self._video2x_path_file.write_text(selected_path, encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            messagebox.showerror(
+                "Could not save Video2X path",
+                f"Could not save the Video2X path to "
+                f"{self._video2x_path_file}:\n{exc}",
+                parent=self.root,
+            )
+            return
+
+        self._last_saved_video2x_path = selected_path
 
     def _build_widgets(self) -> None:
         main = ttk.Frame(self.root, padding=20)
@@ -257,6 +309,7 @@ class VideoUpscalerApp:
         self.video2x_entry.grid(
             row=5, column=1, sticky="ew", padx=(12, 8), pady=6
         )
+        self.video2x_entry.bind("<FocusOut>", self._save_video2x_path)
         self.video2x_button = ttk.Button(
             main, text="Browse...", command=self._browse_video2x
         )
@@ -319,7 +372,31 @@ class VideoUpscalerApp:
             buttons, text="Upscale video", command=self._start_conversion
         )
         self.start_button.pack(side="left")
+
+        footer = ttk.Frame(main)
+        footer.grid(row=12, column=0, columnspan=3, sticky="e", pady=(8, 0))
+        ttk.Label(footer, text="Made by ").pack(side="left")
+        author_link = ttk.Label(
+            footer,
+            text="Amr Elsherbiny",
+            foreground="#0A66C2",
+            cursor="hand2",
+            font=("Segoe UI", 9, "underline"),
+            takefocus=True,
+        )
+        author_link.pack(side="left")
+        author_link.bind("<Button-1>", self._open_linkedin)
+        author_link.bind("<Return>", self._open_linkedin)
+        author_link.bind("<space>", self._open_linkedin)
         self._update_mode_ui()
+
+    def _open_linkedin(self, _event: tk.Event) -> str:
+        if not webbrowser.open("https://www.linkedin.com/in/amr-elsherbiny-197a63277"):
+            messagebox.showerror(
+                "Could not open LinkedIn",
+                "Could not open the LinkedIn profile in a web browser.",
+            )
+        return "break"
 
     def _update_mode_ui(self) -> None:
         if self.mode_var.get() == "Image":
@@ -354,7 +431,8 @@ class VideoUpscalerApp:
             "How to use AI Media Upscaler\n\n"
             "1. Choose Video or Image mode.\n"
             "2. Browse to the input file and choose where to save the result.\n"
-            "3. Select video2x.exe from your Video2X installation folder.\n"
+            "3. Select video2x.exe from your Video2X installation folder. "
+            "The app remembers this path between launches.\n"
             "4. Choose the general-footage or animation model and a maximum size.\n"
             "5. Click Upscale. Use New window to process another file in parallel.\n\n"
             "Requirements: Video2X 6.x, FFmpeg and ffprobe on PATH, and a "
@@ -454,6 +532,7 @@ class VideoUpscalerApp:
         )
         if selected:
             self.video2x_var.set(selected)
+            self._save_video2x_path(force=True)
 
     def _open_new_window(self) -> None:
         script_path = Path(__file__).resolve()
@@ -1008,6 +1087,7 @@ class VideoUpscalerApp:
             messagebox.showinfo("Upscaling cancelled", payload, parent=self.root)
 
     def _on_close(self) -> None:
+        self._save_video2x_path()
         if self._busy:
             should_cancel = messagebox.askyesno(
                 "Conversion in progress",
